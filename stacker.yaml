@@ -1,43 +1,24 @@
-# import c3/minbase so we can cache this locally and all layer builds will
-# use local minbase as their build environment
+# from project-machine/bootkit/layers/minbase/stacker.yaml
 minbase:
-    from:
-        type: docker
-        url: "docker://aci-docker-reg.cisco.com/c3/minbase:1.0.39"
-    build_only: true
-    run: |
-        # a stacker bug present in v0.17.0 meant that /export got "left"
-        # from a build_only layer into the exported minbase.
-        if [ -d /export ]; then
-            echo "Removing existing /export"
-            rm -Rf /export
-        else
-            echo "/export did not exist"
-        fi
-
-        # C3 builds by default do not ever run 'apt-get update'.
-        # That trades reproducibility for up-to-date packages.
-        # We are choosing up-to-date packages here.
-        # layers will be up to date as of the time of it's
-        # minbase build.
-        cp /etc/pkgtool/config.sh /etc/pkgtool/config.sh.dist
-        cat > /etc/pkgtool/config.sh <<"EOF"
-        UPDATE="apt/update"
-        INSTALL=""
-        CLEAN=""
-        EOF
-
-        mirror="http://aci-docker-reg.cisco.com/artifactory/remote-ubuntu/"
-        rel=$(. /etc/os-release && echo "${VERSION_CODENAME}")
-        [ -n "$rel" ]
-        cat > /etc/apt/sources.list <<EOF
-        deb [by-hash=force] $mirror ${rel} main universe
-        deb [by-hash=force] $mirror ${rel}-updates main universe
-        deb [by-hash=force] $mirror ${rel}-security main universe
-        EOF
-
-        pkgtool upgrade
-        cp /etc/pkgtool/config.sh.dist /etc/pkgtool/config.sh
+  build_only: true
+  from:
+    type: docker
+    url: ${{DOCKER_BASE}}ubuntu:jammy
+  import:
+    - "https://raw.githubusercontent.com/project-machine/bootkit/main/layers/minbase/pkgtool"
+  run: |
+    mirror=${{UBUNTU_MIRROR}}
+    rel=$(. /etc/os-release && echo "${VERSION_CODENAME}")
+    [ -n "$rel" ]
+    cat > /etc/apt/sources.list <<EOF
+    deb [by-hash=force] $mirror ${rel} main universe
+    deb [by-hash=force] $mirror ${rel}-updates main universe
+    deb [by-hash=force] $mirror ${rel}-security main universe
+    EOF
+    cp /stacker/pkgtool /usr/local/bin
+    chmod 0755 /usr/local/bin/pkgtool
+    pkgtool upgrade
+    pkgtool install ca-certificates
 
 build-env:
     from:
