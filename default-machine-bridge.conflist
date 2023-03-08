@@ -1,0 +1,43 @@
+{
+   "cniVersion": "0.4.0",
+   "name": "default",
+   "plugins": [
+      {
+         "type": "bridge",
+         "bridge": "machine-br",
+         "isGateway": true,
+         "ipMasq": true,
+         "hairpinMode": true,
+         "ipam": {
+            "type": "host-local",
+            "routes": [
+               {
+                  "dst": "0.0.0.0/0"
+               }
+            ],
+            "ranges": [
+               [
+                  {
+                     "subnet": "10.88.3.0/24",
+                     "gateway": "10.88.3.1"
+                  }
+               ]
+            ]
+         }
+      },
+      {
+         "type": "portmap",
+         "capabilities": {
+            "portMappings": true
+         }
+      },
+      {
+         "type": "firewall",
+         "backend": ""
+      },
+      {
+         "type": "dnsname",
+         "domainName": "dns.machine"
+      }
+   ]
+}

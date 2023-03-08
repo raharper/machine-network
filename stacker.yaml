@@ -1,0 +1,140 @@
+# from project-machine/bootkit/layers/minbase/stacker.yaml
+minbase:
+  build_only: true
+  from:
+    type: docker
+    url: ${{DOCKER_BASE}}ubuntu:jammy
+  import:
+    - "https://raw.githubusercontent.com/project-machine/bootkit/main/layers/minbase/pkgtool"
+  run: |
+    mirror=${{UBUNTU_MIRROR}}
+    rel=$(. /etc/os-release && echo "${VERSION_CODENAME}")
+    [ -n "$rel" ]
+    cat > /etc/apt/sources.list <<EOF
+    deb [by-hash=force] $mirror ${rel} main universe
+    deb [by-hash=force] $mirror ${rel}-updates main universe
+    deb [by-hash=force] $mirror ${rel}-security main universe
+    EOF
+    cp /stacker/pkgtool /usr/local/bin
+    chmod 0755 /usr/local/bin/pkgtool
+    pkgtool upgrade
+    pkgtool install ca-certificates
+
+build-env:
+    from:
+        type: built
+        tag: minbase
+    build_only: true
+    run: |
+        pkgtool install build-essential git
+
+        mkdir -p /root
+
+build-passt:
+    from:
+        type: built
+        tag: build-env
+    build_only: true
+    import:
+        - passt-2023_02_22.4ddbcb9.tar.gz
+    run: |
+        cd /root
+        tar xzf /stacker/passt-*.tar.gz
+        cd passt-*
+        mkdir -p /output
+        export VERSION="${{PASST_VERSION}}"
+        export DESTDIR=/output
+        make
+        make install
+        tar -cpzf /passt-bin-${VERSION}.tar.gz -C /output/usr/local/bin .
+
+build-cnitool:
+    from:
+        type: docker
+        url: "docker://aci-docker-reg.cisco.com/c3/godev:1.0.39"
+    build_only: true
+    import:
+        - "https://github.com/containernetworking/cni/archive/refs/tags/v1.1.2.tar.gz"
+    run: |
+        mkdir -p /root
+        export GOPATH=/root/go
+        export HOME=/root
+        cd /root
+        tar xzf /stacker/v1.1.2.tar.gz
+        cd cni*
+        go build -o /cnitool ./cnitool
+
+build-cni-dnsname:
+    from:
+        type: docker
+        url: "docker://aci-docker-reg.cisco.com/c3/godev:1.0.39"
+    build_only: true
+    import:
+        - "https://github.com/containers/dnsname/archive/refs/tags/v1.3.0.tar.gz"
+    run: |
+        mkdir -p /root
+        export GOPATH=/root/go
+        export HOME=/root
+        cd /root
+        tar xzf /stacker/v1.3.0.tar.gz
+        cd dnsname*
+        go build -o /dnsname ./plugins/meta/dnsname
+
+build-cni-plugins:
+    from:
+        type: built
+        tag: build-env
+    build_only: true
+    import:
+        - "https://github.com/containernetworking/plugins/releases/download/v1.2.0/cni-plugins-linux-amd64-v1.2.0.tgz"
+    run: |
+        mkdir -p /cni-plugins-bin
+        tar -f /stacker/cni-plugins-linux-amd64* -xz -C /cni-plugins-bin
+
+build-cni-network-create:
+    from:
+        type: built
+        tag: build-env
+    build_only: true
+    import:
+        - "default-machine-bridge.conflist"
+    run: |
+        mkdir -p /root/network-create /output/etc/cni/net.d
+        cd /root/network-create
+        git clone https://github.com/AkihiroSuda/podman-network-create-for-rootless-podman.git
+        cp -v  podman-network-create-*/rootless-podman-network-sandbox/alloc /output/alloc
+        cp -v  podman-network-create-*/rootless-podman-network-sandbox/dealloc /output/dealloc
+        cp /stacker/default-machine-bridge.conflist /output/etc/cni/net.d/default.conflist
+        tar -czf /cni-network-create.tar.gz  -C /output .
+
+machine-network-base:
+    from:
+        type: built
+        tag: minbase
+    build_only: true
+    run: |
+        pkgtool install curl dnsmasq iptables iproute2 jq iputils-ping
+        mkdir -p /var/lib/cni/network
+        mkdir -p /etc/cni/net.d
+
+machine-network:
+    from:
+        type: built
+        tag: machine-network-base
+    import:
+        - stacker://build-passt/output/usr/local/bin/passt
+        - stacker://build-passt/output/usr/local/bin/pasta
+        - stacker://build-cnitool/cnitool
+        - stacker://build-cni-dnsname/dnsname
+        - stacker://build-cni-plugins/cni-plugins-bin
+        - stacker://build-cni-network-create/cni-network-create.tar.gz
+    run: |
+        for tool in passt pasta cnitool; do
+            cp /stacker/${tool} /usr/bin/${tool}
+            chmod 0755 /usr/bin/${tool}
+        done
+        mkdir -p /opt/cni/bin
+        cp -v /stacker/cni-plugins-bin/* /opt/cni/bin/
+        cp -v /stacker/dnsname /opt/cni/bin/
+
+        tar -C / -xvzf /stacker/cni-network-create.tar.gz
