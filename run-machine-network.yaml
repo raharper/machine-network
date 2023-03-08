@@ -1,0 +1,4 @@
+machine-network:
+    from:
+        type: built
+        tag: machine-network-base
