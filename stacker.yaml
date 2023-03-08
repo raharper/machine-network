@@ -114,7 +114,7 @@ machine-network-base:
     build_only: true
     run: |
         pkgtool install curl dnsmasq iptables iproute2 jq iputils-ping
-        mkdir -p /var/lib/cni/network
+        mkdir -p /var/lib/cni/networks
         mkdir -p /etc/cni/net.d
 
 machine-network:
